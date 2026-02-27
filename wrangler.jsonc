@@ -1,0 +1,34 @@
+{
+  "name": "wandform",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-27",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "WAND_DB",
+      "database_name": "wandform",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BUILDER_ROOM",
+        "class_name": "BuilderRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BuilderRoom"]
+    }
+  ],
+  "vars": {
+    "APP_NAME": "WandForm",
+    "PARTYKIT_URL": ""
+  }
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WandForm Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <h1>WandForm Dashboard</h1>
+        <p class="muted">Create a form and share the public link.</p>
+
+        <form id="create-form" class="stack">
+          <label class="field">
+            <span>Tenant ID</span>
+            <input name="tenantId" type="text" value="tenant_default" />
+          </label>
+
+          <label class="field">
+            <span>Form Title</span>
+            <input name="title" type="text" placeholder="Customer intake" required />
+          </label>
+
+          <label class="field">
+            <span>Description</span>
+            <textarea name="description" rows="2" placeholder="Tell us about your request"></textarea>
+          </label>
+
+          <div class="inline between">
+            <h2>Fields</h2>
+            <button id="add-field" type="button">Add Field</button>
+          </div>
+
+          <div id="fields" class="stack"></div>
+
+          <button type="submit">Create Form</button>
+        </form>
+
+        <p id="create-result" class="muted"></p>
+      </section>
+
+      <section class="card">
+        <h2>Realtime Builder Room</h2>
+        <p class="muted">Tracks collaborator presence and last update events.</p>
+
+        <div class="stack">
+          <label class="field">
+            <span>Actor Name</span>
+            <input id="actor-name" type="text" value="builder" />
+          </label>
+
+          <label class="field">
+            <span>Room Form ID</span>
+            <input id="room-id" type="text" placeholder="form_..." />
+          </label>
+
+          <div class="inline">
+            <button id="connect-room" type="button">Connect Room</button>
+            <button id="notify-update" type="button">Send Update Event</button>
+          </div>
+
+          <p id="room-status" class="muted">Disconnected</p>
+          <p class="muted">Presence: <strong id="presence-count">0</strong></p>
+          <p class="muted">Last update: <span id="last-update">none</span></p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/dashboard.js"></script>
+  </body>
+</html>

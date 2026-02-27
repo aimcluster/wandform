@@ -1,0 +1,19 @@
+{
+  "name": "wandform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply wandform --local"
+  },
+  "dependencies": {
+    "hono": "^4.6.16"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "wrangler": "^4.17.0"
+  }
+}
