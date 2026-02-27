@@ -14,6 +14,7 @@ WandForm is an AI-native form builder on **Cloudflare Workers** designed to comp
 - Create forms from dashboard (`/`)
 - Public form page (`/f/:id`) and submission capture
 - Submission API listing (`/api/forms/:id/submissions`)
+- Analytics API (`/api/forms/:id/analytics`) with views/starts/completions and top-focused fields
 - Realtime builder room (`/builder/:id`) via Durable Object websocket
 - Tenant/domain tables ready for Cloudflare for SaaS onboarding
 

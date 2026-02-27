@@ -14,6 +14,8 @@ type FormSchema = {
   fields: FormField[];
 };
 
+type EventType = "view" | "start" | "complete" | "submit_error" | "field_focus";
+
 type Env = {
   Bindings: {
     WAND_DB: D1Database;
@@ -27,8 +29,9 @@ const app = new Hono<Env>();
 app.use("/api/*", cors());
 
 const defaultTenantId = "default-tenant";
+const allowedEventTypes = new Set<EventType>(["view", "start", "complete", "submit_error", "field_focus"]);
 
-const safeJson = async (req: Request) => {
+const safeJson = async (req: Request): Promise<any | null> => {
   try {
     return await req.json();
   } catch {
@@ -40,6 +43,22 @@ const ensureDefaultTenant = async (db: D1Database) => {
   await db
     .prepare("INSERT OR IGNORE INTO tenants (id, name) VALUES (?1, ?2)")
     .bind(defaultTenantId, "Default")
+    .run();
+};
+
+const logEvent = async (
+  db: D1Database,
+  formId: string,
+  eventType: EventType,
+  fieldId?: string | null,
+  metadata?: unknown,
+) => {
+  const eventId = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO form_events (id, form_id, event_type, field_id, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(eventId, formId, eventType, fieldId ?? null, metadata ? JSON.stringify(metadata) : null)
     .run();
 };
 
@@ -87,7 +106,7 @@ const formsEl = document.getElementById('forms');
 async function loadForms(){
   const res = await fetch('/api/forms');
   const data = await res.json();
-  formsEl.innerHTML = (data.forms||[]).map(f => '<li><b>' + f.name + '</b><br/><a href="/f/' + f.id + '" target="_blank">Public</a> · <a href="/builder/' + f.id + '" target="_blank">Builder</a> · <a href="/api/forms/' + f.id + '/submissions" target="_blank">Submissions JSON</a></li>').join('');
+  formsEl.innerHTML = (data.forms||[]).map(f => '<li><b>' + f.name + '</b><br/><a href="/f/' + f.id + '" target="_blank">Public</a> · <a href="/builder/' + f.id + '" target="_blank">Builder</a> · <a href="/api/forms/' + f.id + '/submissions" target="_blank">Submissions JSON</a> · <a href="/api/forms/' + f.id + '/analytics" target="_blank">Analytics JSON</a></li>').join('');
 }
 
 document.getElementById('create').onclick = async () => {
@@ -170,13 +189,17 @@ app.get("/f/:id", async (c) => {
     return c.html("<h1>Form not found</h1>", 404);
   }
 
+  await logEvent(c.env.WAND_DB, id, "view", null, {
+    ua: c.req.header("user-agent") ?? "",
+  });
+
   const schema = JSON.parse(row.schema_json) as FormSchema;
   const fieldsHtml = schema.fields
     .map((f) => {
       if (f.type === "textarea") {
-        return `<label>${f.label}<br/><textarea name="${f.id}" ${f.required ? "required" : ""} placeholder="${f.placeholder ?? ""}"></textarea></label>`;
+        return `<label>${f.label}<br/><textarea data-field="${f.id}" name="${f.id}" ${f.required ? "required" : ""} placeholder="${f.placeholder ?? ""}"></textarea></label>`;
       }
-      return `<label>${f.label}<br/><input type="${f.type}" name="${f.id}" ${f.required ? "required" : ""} placeholder="${f.placeholder ?? ""}"/></label>`;
+      return `<label>${f.label}<br/><input data-field="${f.id}" type="${f.type}" name="${f.id}" ${f.required ? "required" : ""} placeholder="${f.placeholder ?? ""}"/></label>`;
     })
     .join("<br/>");
 
@@ -191,11 +214,43 @@ app.get("/f/:id", async (c) => {
 <script>
 const form = document.getElementById('form');
 const out = document.getElementById('out');
+let started = false;
+const focused = new Set();
+
+const track = async (payload) => {
+  try {
+    await fetch('/api/forms/${id}/events', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+  } catch {}
+};
+
+form.addEventListener('input', () => {
+  if (!started) {
+    started = true;
+    track({ type: 'start' });
+  }
+});
+
+form.querySelectorAll('[data-field]').forEach((el) => {
+  el.addEventListener('focus', () => {
+    const fieldId = el.getAttribute('data-field');
+    if (!fieldId || focused.has(fieldId)) return;
+    focused.add(fieldId);
+    track({ type: 'field_focus', fieldId });
+  });
+});
+
 form.onsubmit = async (e)=>{
   e.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
   const res = await fetch('/api/forms/${id}/submissions', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({data})});
   const json = await res.json();
+  if (!res.ok) {
+    await track({ type: 'submit_error', metadata: { message: json.error || 'failed' } });
+  }
   out.textContent = res.ok ? 'Submitted ✅' : ('Error: '+(json.error||'failed'));
   if(res.ok) form.reset();
 };
@@ -250,15 +305,39 @@ app.get("/api/forms/:id", async (c) => {
   });
 });
 
-app.post("/api/forms/:id/submissions", async (c) => {
+app.post("/api/forms/:id/events", async (c) => {
   const formId = c.req.param("id");
   const body = await safeJson(c.req.raw);
-  if (!body || typeof body.data !== "object") {
-    return c.json({ error: "Invalid body. Expected {data:{...}}" }, 400);
+  const type = body?.type as EventType | undefined;
+
+  if (!type || !allowedEventTypes.has(type)) {
+    return c.json({ error: "Invalid event type" }, 400);
   }
 
   const exists = await c.env.WAND_DB.prepare("SELECT id FROM forms WHERE id = ?1").bind(formId).first();
   if (!exists) return c.json({ error: "Form not found" }, 404);
+
+  const fieldId = typeof body?.fieldId === "string" ? body.fieldId.slice(0, 128) : null;
+  const metadata = body?.metadata ?? null;
+
+  await logEvent(c.env.WAND_DB, formId, type, fieldId, metadata);
+  return c.json({ ok: true }, 201);
+});
+
+app.post("/api/forms/:id/submissions", async (c) => {
+  const formId = c.req.param("id");
+  const body = await safeJson(c.req.raw);
+  if (!body || typeof body.data !== "object") {
+    await logEvent(c.env.WAND_DB, formId, "submit_error", null, { reason: "invalid_body" });
+    return c.json({ error: "Invalid body. Expected {data:{...}}" }, 400);
+  }
+
+  const exists = await c.env.WAND_DB.prepare("SELECT id FROM forms WHERE id = ?1").bind(formId).first();
+
+  if (!exists) {
+    await logEvent(c.env.WAND_DB, formId, "submit_error", null, { reason: "form_not_found" });
+    return c.json({ error: "Form not found" }, 404);
+  }
 
   const submissionId = crypto.randomUUID();
   const metadata = {
@@ -271,6 +350,8 @@ app.post("/api/forms/:id/submissions", async (c) => {
   )
     .bind(submissionId, formId, JSON.stringify(body.data), JSON.stringify(metadata))
     .run();
+
+  await logEvent(c.env.WAND_DB, formId, "complete", null, { submissionId });
 
   return c.json({ ok: true, id: submissionId }, 201);
 });
@@ -290,6 +371,52 @@ app.get("/api/forms/:id/submissions", async (c) => {
       data: JSON.parse(r.data_json),
       metadata: r.metadata_json ? JSON.parse(r.metadata_json) : null,
       createdAt: r.created_at,
+    })),
+  });
+});
+
+app.get("/api/forms/:id/analytics", async (c) => {
+  const formId = c.req.param("id");
+  const exists = await c.env.WAND_DB.prepare("SELECT id FROM forms WHERE id = ?1").bind(formId).first();
+  if (!exists) return c.json({ error: "Form not found" }, 404);
+
+  const grouped = await c.env.WAND_DB.prepare(
+    "SELECT event_type, COUNT(*) as count FROM form_events WHERE form_id = ?1 GROUP BY event_type",
+  )
+    .bind(formId)
+    .all<{ event_type: EventType; count: number }>();
+
+  const byType: Record<string, number> = {};
+  for (const row of grouped.results ?? []) {
+    byType[row.event_type] = Number(row.count ?? 0);
+  }
+
+  const views = byType.view ?? 0;
+  const starts = byType.start ?? 0;
+  const completes = byType.complete ?? 0;
+  const submitErrors = byType.submit_error ?? 0;
+
+  const topFields = await c.env.WAND_DB.prepare(
+    "SELECT field_id, COUNT(*) as count FROM form_events WHERE form_id = ?1 AND event_type = 'field_focus' AND field_id IS NOT NULL GROUP BY field_id ORDER BY count DESC LIMIT 10",
+  )
+    .bind(formId)
+    .all<{ field_id: string; count: number }>();
+
+  return c.json({
+    counts: {
+      views,
+      starts,
+      completes,
+      submitErrors,
+    },
+    conversion: {
+      startRate: views > 0 ? Number((starts / views).toFixed(4)) : 0,
+      completionRateFromViews: views > 0 ? Number((completes / views).toFixed(4)) : 0,
+      completionRateFromStarts: starts > 0 ? Number((completes / starts).toFixed(4)) : 0,
+    },
+    topFocusedFields: (topFields.results ?? []).map((row) => ({
+      fieldId: row.field_id,
+      focusCount: Number(row.count ?? 0),
     })),
   });
 });
