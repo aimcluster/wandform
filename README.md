@@ -16,6 +16,7 @@ WandForm is an AI-native form builder on **Cloudflare Workers** designed to comp
 - Submission API listing (`/api/forms/:id/submissions`)
 - Analytics API (`/api/forms/:id/analytics`) with views/starts/completions and top-focused fields
 - Realtime builder room (`/builder/:id`) via Durable Object websocket
+- Realtime history endpoint backed by DO SQLite: `GET /api/realtime/:formId/history`
 - Tenant/domain tables ready for Cloudflare for SaaS onboarding
 
 ## Quickstart
@@ -59,3 +60,4 @@ If you need richer collaborative cursors/doc sync, you can swap/augment with Par
 
 - Market research snapshot: `docs/market-research-2026-02-27.md`
 - Execution plan: `docs/execution-plan.md`
+- Durable Objects built-in DB exploration: `docs/durable-objects-builtin-db-exploration.md`

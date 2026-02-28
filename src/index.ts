@@ -159,13 +159,29 @@ const log = document.getElementById('log');
 const presence = document.getElementById('presence');
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const ws = new WebSocket(wsProto + '://' + location.host + '/api/realtime/${id}');
+
+const prepend = (obj) => {
+  log.textContent = JSON.stringify(obj, null, 2) + '\n' + log.textContent;
+};
+
+const loadHistory = async () => {
+  try {
+    const res = await fetch('/api/realtime/${id}/history?limit=20');
+    const data = await res.json();
+    for (const item of (data.updates || []).slice().reverse()) {
+      prepend({ type: 'history', ...item });
+    }
+  } catch {}
+};
+
 ws.onmessage = (e) => {
   try {
     const msg = JSON.parse(e.data);
     if (msg.type === 'presence') presence.textContent = msg.count;
-    log.textContent = JSON.stringify(msg, null, 2) + '\n' + log.textContent;
+    prepend(msg);
   } catch {}
 };
+
 document.getElementById('send').onclick = () => {
   try {
     const payload = JSON.parse(document.getElementById('update').value || '{}');
@@ -174,6 +190,8 @@ document.getElementById('send').onclick = () => {
     alert('Invalid JSON payload');
   }
 };
+
+loadHistory();
 </script>
 </body>
 </html>`);
@@ -419,6 +437,14 @@ app.get("/api/forms/:id/analytics", async (c) => {
       focusCount: Number(row.count ?? 0),
     })),
   });
+});
+
+app.get("/api/realtime/:formId/history", async (c) => {
+  const formId = c.req.param("formId");
+  const limitRaw = Number(c.req.query("limit") ?? "20");
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+  const stub = c.env.BUILDER_ROOM.get(c.env.BUILDER_ROOM.idFromName(`form:${formId}`));
+  return stub.fetch(new Request(`https://builder.internal/history?limit=${limit}`));
 });
 
 app.get("/api/realtime/:formId", async (c) => {
